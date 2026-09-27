@@ -1,0 +1,6 @@
+{
+  "name": "Wolt Futár Adó- és NAV Határidő Kezelő",
+  "description": "Mellékállású átalányadózó Wolt futárok adatrögzítő, adómentes keretfigyelő és NAV határidő-riasztó alkalmazása.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
