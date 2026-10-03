@@ -29,6 +29,28 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'overview' | 'calendar' | 'ledger' | 'onya' | 'calculator'>('overview');
   const [revenueFilter, setRevenueFilter] = useState<'ALL' | 'WOLT' | 'OTHER'>('ALL');
   
+  // Theme state: defaults to 'light' as requested!
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('wolt_app_theme');
+    if (saved === 'dark' || saved === 'light') return saved;
+    return 'light'; // Light theme is the starting default!
+  });
+
+  useEffect(() => {
+    localStorage.setItem('wolt_app_theme', theme);
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
   // Tax configs
   const [configs, setConfigs] = useState<Record<number, TaxConfig>>(() => {
     const saved = localStorage.getItem('wolt_tax_configs');
@@ -102,6 +124,27 @@ export default function App() {
     isDestructive?: boolean;
     onConfirm: () => void;
   } | null>(null);
+
+  // Check migration for 2026-10-01 start date
+  useEffect(() => {
+    const migrationKey = 'wolt_start_date_2026_10_01_v2';
+    if (!localStorage.getItem(migrationKey)) {
+      setConfigs(DEFAULT_CONFIGS);
+      setDeadlinesMap({
+        2025: generateTaxDeadlines(2025),
+        2026: generateTaxDeadlines(2026),
+        2027: generateTaxDeadlines(2027),
+      });
+      setEntries(prev => {
+        const hasPreOctEntries = prev.some(e => e.year === 2026 && e.month < 10);
+        if (hasPreOctEntries) {
+          return INITIAL_SAMPLE_ENTRIES_2026;
+        }
+        return prev;
+      });
+      localStorage.setItem(migrationKey, 'true');
+    }
+  }, []);
 
   // Sync entries to localStorage
   useEffect(() => {
@@ -281,13 +324,15 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col transition-colors duration-150">
       {/* Top Navbar */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         selectedYear={selectedYear}
         setSelectedYear={setSelectedYear}
+        theme={theme}
+        onToggleTheme={toggleTheme}
         onOpenAddModal={() => {
           setEditingEntry(null);
           setIsAddModalOpen(true);
@@ -373,14 +418,14 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="mt-auto border-t border-slate-900 bg-slate-950 py-6 text-xs text-slate-400">
+      <footer className="mt-auto border-t border-slate-200 dark:border-slate-900 bg-white/80 dark:bg-slate-950 py-6 text-xs text-slate-500 dark:text-slate-400">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-300">Wolt Futár Adóasszisztens</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-slate-800 dark:text-slate-300">Wolt Futár Adóasszisztens</span>
             <span>·</span>
             <span>Mellékállású Átalányadózó Egyéni Vállalkozás (45% Költséghányad)</span>
           </div>
-          <div className="flex items-center gap-4 text-[11px] text-slate-400">
+          <div className="flex items-center gap-4 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap">
             <span>Önszámlázási elszámolás</span>
             <span>·</span>
             <span>NAV ONYA 2558 / 2658</span>

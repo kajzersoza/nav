@@ -9,7 +9,7 @@ export interface WoltEntry {
   year: number;
   month: number; // 1-12
   period: PeriodType;
-  periodLabel: string; // e.g., "2026. Szeptember 1–15." vagy "Egyéb kifizetés"
+  periodLabel: string; // e.g., "2026. Október 1–15." vagy "Egyéb kifizetés"
   grossIncome: number; // Ft (bruttó kifizetés a számlán)
   tip: number; // Ft (borravaló, ha van)
   deliveriesCount: number; // címek száma (futárnál)
@@ -32,6 +32,9 @@ export interface TaxConfig {
   hipaRatePercent: number; // standard 2%
   aamLimit: number; // 12 000 000 Ft or 18 000 000 Ft
   chamberFee: number; // 5 000 Ft
+  startDate?: string; // e.g. "2026-10-01"
+  isPartialYear?: boolean; // true ha törtév (2026.10.01 indulás)
+  activeMonths?: number; // pl. 3 hónap (október-december)
 }
 
 export interface TaxDeadline {
@@ -68,6 +71,7 @@ export interface QuarterData {
   totalTaxPayable: number;
   deadlineDate: string;
   isZeroReturn: boolean; // 0 Ft-os bevallás szükséges-e
+  isActiveQuarter: boolean; // false ha a vállalkozás még nem működött (pl. 2026 Q1-Q3)
 }
 
 export interface TaxCalculationResult {
@@ -85,10 +89,14 @@ export interface TaxCalculationResult {
   totalRecognizedExpense: number; // 45% igazolás nélküli költség
   totalTaxableIncome: number; // 55% adóköteles jövedelem
   
-  // Thresholds
+  // Thresholds & Pro-rata metrics
+  isPartialYear: boolean;
+  startDate?: string;
+  activeMonths: number;
   annualMinWage: number;
-  annualTaxFreeAllowance: number; // Éves minimálbér fele (jövedelemre)
-  revenueTaxFreeThreshold: number; // Adómentes bevételi keret (kb 3.52M Ft 45% mellett)
+  fullYearTaxFreeAllowance: number; // Teljes évi mentes jövedelemkeret
+  annualTaxFreeAllowance: number; // Időarányos mentes jövedelemkeret (3 hónapra: 484 200 Ft)
+  revenueTaxFreeThreshold: number; // Időarányos adómentes bevételi keret (484 200 / 0.55 = 880 364 Ft)
   remainingRevenueAllowance: number;
   usedRevenuePercentage: number;
   isOverAllowance: boolean;
@@ -112,7 +120,7 @@ export interface TaxCalculationResult {
   // Quarters breakdown
   quarters: Record<1 | 2 | 3 | 4, QuarterData>;
   
-  // AAM monitoring
+  // AAM monitoring (időarányos)
   aamLimit: number;
   remainingAamQuota: number;
   aamUsagePercentage: number;

@@ -10,16 +10,21 @@ export const DEFAULT_CONFIGS: Record<number, TaxConfig> = {
     hipaRatePercent: 2,
     aamLimit: 12000000,
     chamberFee: 5000,
+    isPartialYear: false,
+    activeMonths: 12,
   },
   2026: {
     taxYear: 2026,
     expenseRate: 0.45,
-    monthlyMinWage: 322800,
+    monthlyMinWage: 322800, // 2026-os garantált / minimálbér becslés
     employmentType: 'EMPLOYED_36H',
     hipaMode: 'BANDED',
     hipaRatePercent: 2,
-    aamLimit: 18000000,
+    aamLimit: 18000000, // 2026-tól érvényes 18M Ft-os emelt AAM keret
     chamberFee: 5000,
+    startDate: '2026-10-01',
+    isPartialYear: true,
+    activeMonths: 3, // Október, November, December = 3 hónap
   },
   2027: {
     taxYear: 2027,
@@ -30,6 +35,8 @@ export const DEFAULT_CONFIGS: Record<number, TaxConfig> = {
     hipaRatePercent: 2,
     aamLimit: 18000000,
     chamberFee: 5000,
+    isPartialYear: false,
+    activeMonths: 12,
   }
 };
 
@@ -49,13 +56,20 @@ export function calculateTaxes(entries: WoltEntry[], config: TaxConfig): TaxCalc
     .filter(e => e.year === config.taxYear)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
+  const isPartial = Boolean(config.isPartialYear && config.activeMonths && config.activeMonths < 12);
+  const activeMonths = isPartial ? (config.activeMonths || 3) : 12;
+
   const annualMinWage = config.monthlyMinWage * 12;
-  const annualTaxFreeAllowance = annualMinWage / 2; // Éves minimálbér fele = jövedelem adómentes része
-  const taxableRate = 1 - config.expenseRate; // pl. 1 - 0.45 = 0.55 (55%)
+  const fullYearTaxFreeAllowance = annualMinWage / 2; // Teljes évi 6 havi minimálbér jövedelemmentesség
+
+  // Szja tv. 53. § alapján törtév esetén: minden megkezdett naptári hónapra a minimálbér fele jár!
+  const annualTaxFreeAllowance = activeMonths * (config.monthlyMinWage / 2);
+  const taxableRate = 1 - config.expenseRate; // 45% költséghányad mellett a jövedelem 55% (0.55)
   const revenueTaxFreeThreshold = Math.round(annualTaxFreeAllowance / taxableRate);
 
-  let cumulativeGross = 0;
-  let cumulativeTaxable = 0;
+  // Alanyi áfamentesség törtidőszakra (Szja és Áfa tv. alapján napi arányosítással: 92 / 365)
+  const activeDays = isPartial ? 92 : 365;
+  const proRataAamLimit = isPartial ? Math.round(config.aamLimit * (activeDays / 365)) : config.aamLimit;
 
   // Initialize quarters
   const quartersMap: Record<1 | 2 | 3 | 4, {
@@ -98,55 +112,80 @@ export function calculateTaxes(entries: WoltEntry[], config: TaxConfig): TaxCalc
   }
 
   const recognizedExpense = Math.round(totalGross * config.expenseRate);
-  const totalTaxableIncome = Math.round(totalGross * taxableRate);
+  const totalTaxableIncome = totalGross - recognizedExpense; // 55%
 
-  // Progressive computation per quarter
-  let runningGross = 0;
-  let runningTaxable = 0;
+  const remainingRevenueAllowance = Math.max(0, revenueTaxFreeThreshold - totalGross);
+  const usedRevenuePercentage = Math.min(100, Math.round((totalGross / revenueTaxFreeThreshold) * 100));
+  const isOverAllowance = totalTaxableIncome > annualTaxFreeAllowance;
+
+  const taxableIncomeAboveThreshold = Math.max(0, totalTaxableIncome - annualTaxFreeAllowance);
+
+  let cumulativeGross = 0;
+  let cumulativeTaxable = 0;
+
+  const quartersResult: Record<1 | 2 | 3 | 4, QuarterData> = {
+    1: {} as QuarterData,
+    2: {} as QuarterData,
+    3: {} as QuarterData,
+    4: {} as QuarterData,
+  };
+
+  const quarterLabels: Record<1 | 2 | 3 | 4, { label: string; months: string[]; deadline: string }> = {
+    1: {
+      label: 'I. Negyedév',
+      months: ['Január', 'Február', 'Március'],
+      deadline: isPartial ? 'Nem létezett még a vállalkozás' : `${config.taxYear}. április 12.`,
+    },
+    2: {
+      label: 'II. Negyedév',
+      months: ['Április', 'Május', 'Június'],
+      deadline: isPartial ? 'Nem létezett még a vállalkozás' : `${config.taxYear}. július 12.`,
+    },
+    3: {
+      label: 'III. Negyedév',
+      months: ['Július', 'Augusztus', 'Szeptember'],
+      deadline: isPartial ? 'Nem létezett még a vállalkozás' : `${config.taxYear}. október 12.`,
+    },
+    4: {
+      label: isPartial ? 'IV. Negyedév (Első aktív időszak)' : 'IV. Negyedév',
+      months: ['Október', 'November', 'December'],
+      deadline: `${config.taxYear + 1}. január 12.`,
+    },
+  };
+
   let totalSzja = 0;
   let totalTb = 0;
   let totalSzocho = 0;
 
-  const quartersResult: Record<1 | 2 | 3 | 4, QuarterData> = {} as any;
-  const quarterDeadlineDates: Record<1 | 2 | 3 | 4, string> = {
-    1: `${config.taxYear}-04-12`,
-    2: `${config.taxYear}-07-12`,
-    3: `${config.taxYear}-10-12`,
-    4: `${config.taxYear + 1}-01-12`,
-  };
-
-  const quarterLabels: Record<1 | 2 | 3 | 4, { label: string; months: string[] }> = {
-    1: { label: 'I. Negyedév', months: ['Január', 'Február', 'Március'] },
-    2: { label: 'II. Negyedév', months: ['Április', 'Május', 'Június'] },
-    3: { label: 'III. Negyedév', months: ['Július', 'Augusztus', 'Szeptember'] },
-    4: { label: 'IV. Negyedév', months: ['Október', 'November', 'December'] },
-  };
-
-  ([1, 2, 3, 4] as const).forEach(q => {
+  for (const q of [1, 2, 3, 4] as const) {
     const qGross = quartersMap[q].gross;
     const qTaxable = Math.round(qGross * taxableRate);
-    
-    const prevTaxable = runningTaxable;
-    const nextTaxable = prevTaxable + qTaxable;
 
-    // How much of this quarter's taxable income exceeds the annual tax free allowance?
-    let qTaxableAbove = 0;
-    if (nextTaxable > annualTaxFreeAllowance) {
-      if (prevTaxable >= annualTaxFreeAllowance) {
-        qTaxableAbove = qTaxable;
-      } else {
-        qTaxableAbove = nextTaxable - annualTaxFreeAllowance;
-      }
+    const prevCumulativeTaxable = cumulativeTaxable;
+    cumulativeGross += qGross;
+    cumulativeTaxable += qTaxable;
+
+    // Check how much of cumulative taxable exceeds the allowance
+    const prevOver = Math.max(0, prevCumulativeTaxable - annualTaxFreeAllowance);
+    const currOver = Math.max(0, cumulativeTaxable - annualTaxFreeAllowance);
+    const newTaxableThisQuarter = Math.max(0, currOver - prevOver);
+
+    let szja = 0;
+    let tb = 0;
+    let szocho = 0;
+
+    if (newTaxableThisQuarter > 0) {
+      szja = Math.round(newTaxableThisQuarter * 0.15); // 15% SZJA
+      // Mellékállásban csak a tényleges adóköteles jövedelem után kell fizetni:
+      tb = Math.round(newTaxableThisQuarter * 0.185); // 18.5% TB járulék
+      szocho = Math.round(newTaxableThisQuarter * 0.13); // 13% Szocho
     }
 
-    const qSzja = Math.round(qTaxableAbove * 0.15);
-    const qTb = Math.round(qTaxableAbove * 0.185);
-    const qSzocho = Math.round(qTaxableAbove * 0.13);
-    const qTotalTax = qSzja + qTb + qSzocho;
+    totalSzja += szja;
+    totalTb += tb;
+    totalSzocho += szocho;
 
-    totalSzja += qSzja;
-    totalTb += qTb;
-    totalSzocho += qSzocho;
+    const isActive = isPartial ? q === 4 : true;
 
     quartersResult[q] = {
       quarter: q,
@@ -157,49 +196,38 @@ export function calculateTaxes(entries: WoltEntry[], config: TaxConfig): TaxCalc
       deliveries: quartersMap[q].deliveries,
       hours: quartersMap[q].hours,
       taxableIncome: qTaxable,
-      cumulativeGrossBefore: runningGross,
-      cumulativeGrossAfter: runningGross + qGross,
-      cumulativeTaxableBefore: prevTaxable,
-      cumulativeTaxableAfter: nextTaxable,
-      szjaPayable: qSzja,
-      tbPayable: qTb,
-      szochoPayable: qSzocho,
-      totalTaxPayable: qTotalTax,
-      deadlineDate: quarterDeadlineDates[q],
-      isZeroReturn: qTotalTax === 0,
+      cumulativeGrossBefore: cumulativeGross - qGross,
+      cumulativeGrossAfter: cumulativeGross,
+      cumulativeTaxableBefore: prevCumulativeTaxable,
+      cumulativeTaxableAfter: cumulativeTaxable,
+      szjaPayable: szja,
+      tbPayable: tb,
+      szochoPayable: szocho,
+      totalTaxPayable: szja + tb + szocho,
+      deadlineDate: quarterLabels[q].deadline,
+      isZeroReturn: (szja + tb + szocho) === 0,
+      isActiveQuarter: isActive,
     };
-
-    runningGross += qGross;
-    runningTaxable += qTaxable;
-  });
-
-  const taxableIncomeAboveThreshold = Math.max(0, totalTaxableIncome - annualTaxFreeAllowance);
-  const isOverAllowance = totalTaxableIncome > annualTaxFreeAllowance;
-  const remainingRevenueAllowance = Math.max(0, revenueTaxFreeThreshold - totalGross);
-  const usedRevenuePercentage = Math.min(100, Math.round((totalGross / revenueTaxFreeThreshold) * 100));
-
-  // HIPA calculation estimate
-  // In Hungary sávos (banded) flat-rate HIPA:
-  // Under 2.5M Ft revenue: base is 50,000 Ft * rate (e.g. 2% = 1,000 Ft) or small business base
-  // Under 12M Ft: base is 2.5M Ft base * rate (50,000 Ft at 2%)
-  // Under 18M Ft: base is 6.0M Ft base * rate (120,000 Ft at 2%)
-  let hipaEstimated = 0;
-  if (config.hipaMode === 'BANDED') {
-    if (totalGross === 0) {
-      hipaEstimated = 0;
-    } else if (totalGross <= 2500000) {
-      hipaEstimated = Math.round(50000 * (config.hipaRatePercent / 100));
-    } else if (totalGross <= 12000000) {
-      hipaEstimated = Math.round(2500000 * (config.hipaRatePercent / 100));
-    } else {
-      hipaEstimated = Math.round(6000000 * (config.hipaRatePercent / 100));
-    }
-  } else {
-    // Standard HIPA: revenue * (1 - 0.45) * rate%
-    hipaEstimated = Math.round(totalTaxableIncome * (config.hipaRatePercent / 100));
   }
 
-  const chamberFee = totalGross > 0 ? config.chamberFee : 0;
+  // HIPA calculation
+  let hipaEstimated = 0;
+  if (totalGross > 0) {
+    if (config.hipaMode === 'BANDED') {
+      if (totalGross <= 2500000) {
+        hipaEstimated = isPartial ? 2500 : 10000; // Törtév sávos adókedvezmény
+      } else if (totalGross <= 12000000) {
+        hipaEstimated = isPartial ? 12500 : 50000;
+      } else {
+        hipaEstimated = isPartial ? 30000 : 120000;
+      }
+    } else {
+      const hipaBase = totalGross * taxableRate;
+      hipaEstimated = Math.round(hipaBase * (config.hipaRatePercent / 100));
+    }
+  }
+
+  const chamberFee = totalGross > 0 ? config.chamberFee : (isPartial ? 5000 : 0);
   const totalNavTaxes = totalSzja + totalTb + totalSzocho;
   const totalObligations = totalNavTaxes + hipaEstimated + chamberFee;
 
@@ -210,6 +238,9 @@ export function calculateTaxes(entries: WoltEntry[], config: TaxConfig): TaxCalc
 
   return {
     taxYear: config.taxYear,
+    isPartialYear: isPartial,
+    startDate: config.startDate,
+    activeMonths,
     totalGrossRevenue: totalGross,
     woltGrossRevenue: woltGross,
     otherGrossRevenue: otherGross,
@@ -221,6 +252,7 @@ export function calculateTaxes(entries: WoltEntry[], config: TaxConfig): TaxCalc
     totalRecognizedExpense: recognizedExpense,
     totalTaxableIncome,
     annualMinWage,
+    fullYearTaxFreeAllowance,
     annualTaxFreeAllowance,
     revenueTaxFreeThreshold,
     remainingRevenueAllowance,
@@ -239,9 +271,9 @@ export function calculateTaxes(entries: WoltEntry[], config: TaxConfig): TaxCalc
     netPerHour,
     averagePerDelivery,
     quarters: quartersResult,
-    aamLimit: config.aamLimit,
-    remainingAamQuota: Math.max(0, config.aamLimit - totalGross),
-    aamUsagePercentage: Math.min(100, Math.round((totalGross / config.aamLimit) * 100)),
+    aamLimit: proRataAamLimit,
+    remainingAamQuota: Math.max(0, proRataAamLimit - totalGross),
+    aamUsagePercentage: Math.min(100, Math.round((totalGross / proRataAamLimit) * 100)),
   };
 }
 
@@ -249,6 +281,87 @@ export function generateTaxDeadlines(year: number): TaxDeadline[] {
   const formPrefix = String(year).slice(-2);
   const nextFormPrefix = String(year + 1).slice(-2);
 
+  // 2026: Vállalkozás indulása 2026. október 1.
+  if (year === 2026) {
+    return [
+      {
+        id: '2026-mkik-registration',
+        title: 'MKIK Kamarai bejelentkezés & tagdíj',
+        formNumber: 'MKIK Regisztráció',
+        date: '2026-10-05',
+        category: 'CHAMBER',
+        description: 'Kötelező kamarai regisztráció az egyéni vállalkozás bejelentésétől (2026.10.01.) számított 5 napon belül, valamint az 5 000 Ft-os hozzájárulás megfizetése.',
+        actionRequired: 'Online regisztráció a székhely szerinti kereskedelmi és iparkamaránál és 5 000 Ft átutalása.',
+        completed: true,
+        completedAt: '2026-10-02',
+      },
+      {
+        id: '2026-hipa-registration',
+        title: 'HIPA Bejelentkezés az Önkormányzathoz (15 napon belül)',
+        formNumber: 'HIPA / E-önkormányzat',
+        date: '2026-10-15',
+        category: 'HIPA',
+        description: 'Bejelentkezés a székhely szerinti önkormányzati adóhatósághoz az indulástól számított 15 napon belül az E-önkormányzat portálon, valamint a sávos HIPA nyilatkozat megtétele.',
+        actionRequired: 'Ügyfélkapus belépés az ohp-20.asp.lgov.hu oldalon, bejelentkezési nyomtatvány beküldése.',
+        completed: false,
+      },
+      {
+        id: '2026-wolt-oct-check',
+        title: 'Wolt Októberi számlák & kifizetések lekönyvelése',
+        formNumber: 'Wolt Elszámolás',
+        date: '2026-11-06',
+        category: 'WOLT_CYCLE',
+        description: 'Az első havi (október 1–31.) önszámlázási elszámolások és banki jóváírások egyeztetése az átalányadó nyilvántartásban.',
+        actionRequired: 'A Wolt Partner portálról a havi számlaadatok ellenőrzése és appba történő rögzítése.',
+        completed: false,
+      },
+      {
+        id: '2026-q4-58',
+        title: `Legelső NAV bevallásod: 2026. IV. negyedév ('${formPrefix}58)`,
+        formNumber: `'${formPrefix}58 (ONYA)`,
+        date: `${year + 1}-01-12`,
+        quarter: 4,
+        category: 'QUARTERLY_58',
+        description: '2026.10.01 – 2026.12.31 közötti időszak (a vállalkozás indulása óta). Ha a bruttó bevételed 880 364 Ft alatt maradt, 0 Ft-os bevallást kell benyújtanod!',
+        actionRequired: `Beküldés az ONYA-n (${year + 1}. január 12-ig). 0 Ft fizetendő esetén is kötelező a beküldés!`,
+        navAccount: '10032000-06056353 (NAV Személyi jövedelemadó)',
+        navAccountName: 'NAV SZJA számla (ha a kereten felül adó fizetendő)',
+        completed: false,
+      },
+      {
+        id: '2027-mkik-annual',
+        title: 'MKIK Kamarai hozzájárulás 2027-re',
+        formNumber: 'MKIK',
+        date: '2027-03-31',
+        category: 'CHAMBER',
+        description: 'A 2027-es adóév kötelező kamarai hozzájárulásának megfizetése a székhely szerinti Iparkamarának (5 000 Ft).',
+        actionRequired: 'Átutalás a kamara bankszámlájára.',
+        completed: false,
+      },
+      {
+        id: '2026-annual-szja',
+        title: `2026. Évi SZJA bevallás véglegesítése ('${formPrefix}SZJA)`,
+        formNumber: `'${formPrefix}SZJA (eSZJA)`,
+        date: `${year + 1}-05-20`,
+        category: 'ANNUAL_SZJA',
+        description: 'A NAV által készített tervezet kiegészítése a 2026. október 1. és december 31. közötti törtidőszaki átalányadós bevételeiddel.',
+        actionRequired: 'Belépés az eszja.nav.gov.hu oldalra, adatok ellenőrzése és jóváhagyása.',
+        completed: false,
+      },
+      {
+        id: '2026-hipa-annual-closing',
+        title: '2026. Évi HIPA bevallás és elszámolás (Törtév)',
+        formNumber: 'HIPA / E-önkormányzat',
+        date: `${year + 1}-05-31`,
+        category: 'HIPA',
+        description: 'A 2026-os törtidőszak (Q4) helyi iparűzési adójának véglegesítése az E-önkormányzat portálon az önkormányzat felé.',
+        actionRequired: 'E-önkormányzat portálon HIPA nyomtatvány beküldése és a törtidőszaki díj rendezése.',
+        completed: false,
+      }
+    ];
+  }
+
+  // 2027 és egyéb teljes évek
   return [
     {
       id: `${year}-mkik-chamber`,
@@ -311,7 +424,7 @@ export function generateTaxDeadlines(year: number): TaxDeadline[] {
       formNumber: 'HIPA előleg',
       date: `${year}-09-15`,
       category: 'HIPA',
-      description: 'Helyi iparűzési adó előleg fizetési határidő az önkormányzat felé (sávos adózóknál az előző évi bevallás szerint).',
+      description: 'Helyi iparűzési adó előleg fizetési határidő az önkormányzat felé.',
       actionRequired: 'Átutalás az illetékes önkormányzat iparűzési adó beszedési számlájára.',
       completed: false,
     },
@@ -322,7 +435,7 @@ export function generateTaxDeadlines(year: number): TaxDeadline[] {
       date: `${year}-10-12`,
       quarter: 3,
       category: 'QUARTERLY_58',
-      description: '07.01 – 09.30 közötti időszak. Ellenőrizd a bevételt: közeledsz-e a ~3,5-3,8M Ft adómentes határhoz!',
+      description: '07.01 – 09.30 közötti időszak. Ellenőrizd a bevételt: közeledsz-e a mentes határhoz!',
       actionRequired: 'Beküldés az ONYA felületen az ügyfélkapuval.',
       navAccount: '10032000-06056353',
       completed: false,
@@ -351,237 +464,132 @@ export function getDaysRemaining(targetDateStr: string): number {
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 }
 
+// 2026. október 1-jei induláshoz illeszkedő valósághű mintaadatok (IV. negyedév)
 export const INITIAL_SAMPLE_ENTRIES_2026: WoltEntry[] = [
   {
-    id: 'sample-1',
+    id: 'sample-2026-10-1',
     sourceType: 'WOLT',
     clientName: 'Wolt Magyarország Kft.',
-    date: '2026-01-16',
+    date: '2026-10-16',
     year: 2026,
-    month: 1,
+    month: 10,
     period: 'FIRST_HALF',
-    periodLabel: '2026. Január 1–15.',
+    periodLabel: '2026. Október 1–15.',
     grossIncome: 142500,
-    tip: 11200,
+    tip: 12400,
     deliveriesCount: 145,
-    hoursWorked: 48,
+    hoursWorked: 46,
     fuelAndVehicleCost: 18000,
-    invoiceNumber: 'WOLT-2026-01-01',
-    notes: 'Két heti elszámolás (hétvégi csúcsidőszakkal)',
-    createdAt: Date.now() - 200000000,
-  },
-  {
-    id: 'sample-other-1',
-    sourceType: 'OTHER',
-    clientName: 'Egyéni Megbízó (Csomagszállítás / Tanácsadás)',
-    date: '2026-01-25',
-    year: 2026,
-    month: 1,
-    period: 'CUSTOM',
-    periodLabel: '2026. Január (Egyéb)',
-    grossIncome: 65000,
-    tip: 0,
-    deliveriesCount: 10,
-    hoursWorked: 8,
-    fuelAndVehicleCost: 5000,
-    invoiceNumber: 'SZAMLA-2026-001',
-    notes: 'Közvetlen megbízási szerződés / egyéb vállalkozói tevékenység',
-    createdAt: Date.now() - 190000000,
-  },
-  {
-    id: 'sample-2',
-    date: '2026-01-31',
-    year: 2026,
-    month: 1,
-    period: 'SECOND_HALF',
-    periodLabel: '2026. Január 16–31.',
-    grossIncome: 158000,
-    tip: 13500,
-    deliveriesCount: 160,
-    hoursWorked: 52,
-    fuelAndVehicleCost: 21000,
-    invoiceNumber: 'WOLT-2026-01-02',
-    notes: 'Hóvégi hideg időjárási dinamikus bónusz',
-    createdAt: Date.now() - 180000000,
-  },
-  {
-    id: 'sample-3',
-    date: '2026-02-15',
-    year: 2026,
-    month: 2,
-    period: 'FIRST_HALF',
-    periodLabel: '2026. Február 1–15.',
-    grossIncome: 135400,
-    tip: 9800,
-    deliveriesCount: 138,
-    hoursWorked: 44,
-    fuelAndVehicleCost: 16500,
-    invoiceNumber: 'WOLT-2026-02-01',
-    notes: 'Február eleje',
-    createdAt: Date.now() - 150000000,
-  },
-  {
-    id: 'sample-4',
-    date: '2026-02-28',
-    year: 2026,
-    month: 2,
-    period: 'SECOND_HALF',
-    periodLabel: '2026. Február 16–28.',
-    grossIncome: 148900,
-    tip: 12100,
-    deliveriesCount: 152,
-    hoursWorked: 49,
-    fuelAndVehicleCost: 19000,
-    invoiceNumber: 'WOLT-2026-02-02',
-    notes: 'Valentin-napi forgalom',
-    createdAt: Date.now() - 130000000,
-  },
-  {
-    id: 'sample-5',
-    date: '2026-03-15',
-    year: 2026,
-    month: 3,
-    period: 'FIRST_HALF',
-    periodLabel: '2026. Március 1–15.',
-    grossIncome: 162000,
-    tip: 14300,
-    deliveriesCount: 165,
-    hoursWorked: 54,
-    fuelAndVehicleCost: 22000,
-    invoiceNumber: 'WOLT-2026-03-01',
-    notes: 'Március eleje',
-    createdAt: Date.now() - 110000000,
-  },
-  {
-    id: 'sample-6',
-    date: '2026-03-31',
-    year: 2026,
-    month: 3,
-    period: 'SECOND_HALF',
-    periodLabel: '2026. Március 16–31.',
-    grossIncome: 154000,
-    tip: 12900,
-    deliveriesCount: 155,
-    hoursWorked: 50,
-    fuelAndVehicleCost: 20000,
-    invoiceNumber: 'WOLT-2026-03-02',
-    notes: 'Húsvét előtti időszak',
-    createdAt: Date.now() - 90000000,
-  },
-  {
-    id: 'sample-7',
-    date: '2026-04-15',
-    year: 2026,
-    month: 4,
-    period: 'FIRST_HALF',
-    periodLabel: '2026. Április 1–15.',
-    grossIncome: 171200,
-    tip: 15800,
-    deliveriesCount: 170,
-    hoursWorked: 55,
-    fuelAndVehicleCost: 23000,
-    invoiceNumber: 'WOLT-2026-04-01',
-    notes: 'II. negyedév indulása',
-    createdAt: Date.now() - 70000000,
-  },
-  {
-    id: 'sample-8',
-    sourceType: 'WOLT',
-    clientName: 'Wolt Magyarország Kft.',
-    date: '2026-04-30',
-    year: 2026,
-    month: 4,
-    period: 'SECOND_HALF',
-    periodLabel: '2026. Április 16–30.',
-    grossIncome: 165000,
-    tip: 13900,
-    deliveriesCount: 162,
-    hoursWorked: 51,
-    fuelAndVehicleCost: 21500,
-    invoiceNumber: 'WOLT-2026-04-02',
-    notes: 'Tavaszi esős napok bónusza',
-    createdAt: Date.now() - 50000000,
-  },
-  {
-    id: 'sample-other-2',
-    sourceType: 'OTHER',
-    clientName: 'Foodora / Egyéb Kézbesítés',
-    date: '2026-05-10',
-    year: 2026,
-    month: 5,
-    period: 'CUSTOM',
-    periodLabel: '2026. Május (Egyéb bevétel)',
-    grossIncome: 88000,
-    tip: 3500,
-    deliveriesCount: 22,
-    hoursWorked: 14,
-    fuelAndVehicleCost: 7000,
-    invoiceNumber: 'SZAMLA-2026-045',
-    notes: 'Kiegészítő futárkodás és egyéb szolgáltatási számla',
+    invoiceNumber: 'WOLT-2026-10-01',
+    notes: 'A vállalkozás indulása (2026.10.01) utáni legelső kétheti kifizetés!',
     createdAt: Date.now() - 40000000,
   },
   {
-    id: 'sample-9',
-    date: '2026-05-15',
+    id: 'sample-2026-10-2',
+    sourceType: 'WOLT',
+    clientName: 'Wolt Magyarország Kft.',
+    date: '2026-10-31',
     year: 2026,
-    month: 5,
-    period: 'FIRST_HALF',
-    periodLabel: '2026. Május 1–15.',
-    grossIncome: 178000,
-    tip: 16200,
-    deliveriesCount: 175,
-    hoursWorked: 56,
-    fuelAndVehicleCost: 24000,
-    invoiceNumber: 'WOLT-2026-05-01',
-    notes: 'Május 1. ünnepi forgalom',
+    month: 10,
+    period: 'SECOND_HALF',
+    periodLabel: '2026. Október 16–31.',
+    grossIncome: 156800,
+    tip: 14200,
+    deliveriesCount: 158,
+    hoursWorked: 50,
+    fuelAndVehicleCost: 20500,
+    invoiceNumber: 'WOLT-2026-10-02',
+    notes: 'Hóvégi forgalom és esős időjárási bónuszok',
     createdAt: Date.now() - 30000000,
   },
   {
-    id: 'sample-10',
-    date: '2026-05-31',
+    id: 'sample-2026-11-1',
+    sourceType: 'WOLT',
+    clientName: 'Wolt Magyarország Kft.',
+    date: '2026-11-15',
     year: 2026,
-    month: 5,
-    period: 'SECOND_HALF',
-    periodLabel: '2026. Május 16–31.',
-    grossIncome: 184500,
-    tip: 17100,
-    deliveriesCount: 182,
-    hoursWorked: 58,
-    fuelAndVehicleCost: 25000,
-    invoiceNumber: 'WOLT-2026-05-02',
-    notes: 'Május vége',
+    month: 11,
+    period: 'FIRST_HALF',
+    periodLabel: '2026. November 1–15.',
+    grossIncome: 148200,
+    tip: 11900,
+    deliveriesCount: 150,
+    hoursWorked: 48,
+    fuelAndVehicleCost: 19000,
+    invoiceNumber: 'WOLT-2026-11-01',
+    notes: 'November eleje, stabil hétvégi műszakok',
+    createdAt: Date.now() - 20000000,
+  },
+  {
+    id: 'sample-2026-11-other',
+    sourceType: 'OTHER',
+    clientName: 'Egyéni Megbízó (Csomagszállítás / Tanácsadás)',
+    date: '2026-11-24',
+    year: 2026,
+    month: 11,
+    period: 'CUSTOM',
+    periodLabel: '2026. November (Egyéb számla)',
+    grossIncome: 55000,
+    tip: 0,
+    deliveriesCount: 8,
+    hoursWorked: 6,
+    fuelAndVehicleCost: 4000,
+    invoiceNumber: 'SZAMLA-2026-001',
+    notes: 'Közvetlen vállalkozói megbízás az EV keretében',
     createdAt: Date.now() - 15000000,
   },
   {
-    id: 'sample-11',
-    date: '2026-06-15',
+    id: 'sample-2026-11-2',
+    sourceType: 'WOLT',
+    clientName: 'Wolt Magyarország Kft.',
+    date: '2026-11-30',
     year: 2026,
-    month: 6,
-    period: 'FIRST_HALF',
-    periodLabel: '2026. Június 1–15.',
-    grossIncome: 169000,
-    tip: 14500,
-    deliveriesCount: 168,
+    month: 11,
+    period: 'SECOND_HALF',
+    periodLabel: '2026. November 16–30.',
+    grossIncome: 164000,
+    tip: 15300,
+    deliveriesCount: 165,
     hoursWorked: 52,
     fuelAndVehicleCost: 22000,
-    invoiceNumber: 'WOLT-2026-06-01',
-    notes: 'Június eleje',
-    createdAt: Date.now() - 8000000,
+    invoiceNumber: 'WOLT-2026-11-02',
+    notes: 'Black Friday időszak, kiemelt rendelésszám',
+    createdAt: Date.now() - 10000000,
   },
   {
-    id: 'sample-12',
-    date: '2026-06-30',
+    id: 'sample-2026-12-1',
+    sourceType: 'WOLT',
+    clientName: 'Wolt Magyarország Kft.',
+    date: '2026-12-15',
     year: 2026,
-    month: 6,
+    month: 12,
+    period: 'FIRST_HALF',
+    periodLabel: '2026. December 1–15.',
+    grossIncome: 182400,
+    tip: 19500,
+    deliveriesCount: 178,
+    hoursWorked: 56,
+    fuelAndVehicleCost: 24000,
+    invoiceNumber: 'WOLT-2026-12-01',
+    notes: 'Mikulás és karácsonyi előkészületek, magas borravalók',
+    createdAt: Date.now() - 5000000,
+  },
+  {
+    id: 'sample-2026-12-2',
+    sourceType: 'WOLT',
+    clientName: 'Wolt Magyarország Kft.',
+    date: '2026-12-31',
+    year: 2026,
+    month: 12,
     period: 'SECOND_HALF',
-    periodLabel: '2026. Június 16–30.',
-    grossIncome: 174000,
-    tip: 15200,
-    deliveriesCount: 172,
-    hoursWorked: 53,
-    fuelAndVehicleCost: 23500,
-    invoiceNumber: 'WOLT-2026-06-02',
-    notes: 'II. negyedév vége',
-    createdAt: Date.now() - 2000000,
+    periodLabel: '2026. December 16–31.',
+    grossIncome: 171100,
+    tip: 18200,
+    deliveriesCount: 168,
+    hoursWorked: 52,
+    fuelAndVehicleCost: 23000,
+    invoiceNumber: 'WOLT-2026-12-02',
+    notes: 'Karácsonyi és Szilveszteri ünnepi műszakok',
+    createdAt: Date.now() - 1000000,
   },
 ];

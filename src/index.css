@@ -1,15 +1,36 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
+  :root, html {
+    color-scheme: light;
+    background-color: #f8fafc;
+  }
+
+  html.dark, :root.dark {
+    color-scheme: dark;
+    background-color: #020617;
+  }
+
   html, body {
     overflow-x: hidden;
     width: 100%;
     margin: 0;
     padding: 0;
+    min-height: 100%;
   }
 
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: #f8fafc;
+    color: #0f172a;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .dark body, html.dark body {
+    background-color: #020617;
+    color: #f1f5f9;
   }
 
   code, kbd, samp, pre, .font-mono {

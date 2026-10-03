@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { WoltEntry, PeriodType, RevenueSourceType } from '../types/tax';
-import { X, Calendar, DollarSign, Clock, Bike, FileText, Check, Briefcase } from 'lucide-react';
+import { WoltEntry } from '../types/tax';
+import { X, Check, Bike, Briefcase } from 'lucide-react';
 
 interface AddEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (entry: Omit<WoltEntry, 'id' | 'createdAt'>, editId?: string) => void;
   initialEntry?: WoltEntry | null;
-  defaultYear: number;
+  defaultYear?: number;
 }
 
 export const AddEntryModal: React.FC<AddEntryModalProps> = ({
@@ -15,12 +15,12 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
   onClose,
   onSave,
   initialEntry,
-  defaultYear,
+  defaultYear = 2026,
 }) => {
-  const [sourceType, setSourceType] = useState<RevenueSourceType>('WOLT');
-  const [clientName, setClientName] = useState('');
+  const [sourceType, setSourceType] = useState<'WOLT' | 'OTHER'>('WOLT');
+  const [clientName, setClientName] = useState('Wolt Magyarország Kft.');
   const [date, setDate] = useState('');
-  const [periodType, setPeriodType] = useState<PeriodType>('FIRST_HALF');
+  const [periodType, setPeriodType] = useState<'FIRST_HALF' | 'SECOND_HALF' | 'FULL_MONTH' | 'CUSTOM'>('FIRST_HALF');
   const [grossIncome, setGrossIncome] = useState('');
   const [tip, setTip] = useState('');
   const [deliveriesCount, setDeliveriesCount] = useState('');
@@ -62,7 +62,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
       setInvoiceNumber('');
       setNotes('');
     }
-  }, [initialEntry, isOpen, defaultYear]);
+  }, [initialEntry, defaultYear, isOpen]);
 
   if (!isOpen) return null;
 
@@ -88,28 +88,27 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
     let periodLabel = `${yr}. ${monthName}`;
     if (sourceType === 'WOLT') {
       if (periodType === 'FIRST_HALF') {
-        periodLabel += ' 1–15.';
+        periodLabel = `${yr}. ${monthName} (1–15.)`;
       } else if (periodType === 'SECOND_HALF') {
-        const lastDay = new Date(yr, mo, 0).getDate();
-        periodLabel += ` 16–${lastDay}.`;
-      } else if (periodType === 'FULL_MONTH') {
-        periodLabel += ' (teljes hó)';
+        periodLabel = `${yr}. ${monthName} (16–hó vége)`;
+      } else {
+        periodLabel = `${yr}. ${monthName} (Teljes hónap)`;
       }
     } else {
-      periodLabel = clientName ? `${clientName} (${yr}. ${monthName})` : `${yr}. ${monthName} (Egyéb számla)`;
+      periodLabel = `${yr}. ${monthName} (${clientName || 'Egyéb számla'})`;
     }
 
     onSave({
-      sourceType,
-      clientName: clientName.trim() || (sourceType === 'WOLT' ? 'Wolt Magyarország Kft.' : 'Egyéb ügyfél'),
-      date,
       year: yr,
       month: mo,
       period: periodType,
+      sourceType,
+      clientName: clientName.trim() || (sourceType === 'WOLT' ? 'Wolt Magyarország Kft.' : 'Egyéb Ügyfél'),
+      date,
       periodLabel,
       grossIncome: parsedGross,
       tip: parseFloat(tip) || 0,
-      deliveriesCount: parseInt(deliveriesCount) || 0,
+      deliveriesCount: parseInt(deliveriesCount, 10) || 0,
       hoursWorked: parseFloat(hoursWorked) || 0,
       fuelAndVehicleCost: parseFloat(fuelAndVehicleCost) || 0,
       invoiceNumber: invoiceNumber.trim() || (sourceType === 'WOLT' ? `WOLT-${yr}-${String(mo).padStart(2, '0')}-${periodType === 'FIRST_HALF' ? '01' : '02'}` : `SZAMLA-${yr}-${String(mo).padStart(2, '0')}`),
@@ -120,22 +119,22 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl my-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 dark:bg-black/75 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl my-auto">
         
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-800 bg-slate-950/40">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
           <div>
-            <h3 className="text-base font-semibold text-white">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">
               {initialEntry ? 'Bevétel Módosítása' : 'Új Kifizetés / Bevétel Rögzítése'}
             </h3>
-            <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
+            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Wolt elszámolás vagy egyéb vállalkozói számla adatai
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+            className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -145,9 +144,9 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 text-xs max-h-[80vh] overflow-y-auto">
           
           {error && (
-            <div className="p-3 bg-red-950/80 border border-red-800/80 rounded-xl text-red-200 text-xs flex items-center justify-between animate-in fade-in">
+            <div className="p-3 bg-red-50 dark:bg-red-950/80 border border-red-200 dark:border-red-800/80 rounded-xl text-red-700 dark:text-red-200 text-xs flex items-center justify-between animate-in fade-in">
               <span>{error}</span>
-              <button type="button" onClick={() => setError(null)} className="p-1 hover:bg-white/10 rounded">
+              <button type="button" onClick={() => setError(null)} className="p-1 hover:bg-black/5 dark:hover:bg-white/10 rounded">
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -155,7 +154,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
 
           {/* Revenue Source Selector */}
           <div>
-            <label className="block text-slate-300 font-medium mb-1.5">Bevétel Típusa</label>
+            <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5">Bevétel Típusa</label>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -165,8 +164,8 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
                 }}
                 className={`py-2 px-3 text-center rounded-lg border font-semibold flex items-center justify-center gap-1.5 transition-colors ${
                   sourceType === 'WOLT'
-                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/60 shadow-sm'
-                    : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                    ? 'bg-cyan-50 dark:bg-cyan-500/20 text-cyan-800 dark:text-cyan-300 border-cyan-300 dark:border-cyan-500/60 shadow-xs'
+                    : 'bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 <Bike className="w-3.5 h-3.5" />
@@ -180,8 +179,8 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
                 }}
                 className={`py-2 px-3 text-center rounded-lg border font-semibold flex items-center justify-center gap-1.5 transition-colors ${
                   sourceType === 'OTHER'
-                    ? 'bg-purple-500/20 text-purple-300 border-purple-500/60 shadow-sm'
-                    : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                    ? 'bg-purple-50 dark:bg-purple-500/20 text-purple-800 dark:text-purple-300 border-purple-300 dark:border-purple-500/60 shadow-xs'
+                    : 'bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 <Briefcase className="w-3.5 h-3.5" />
@@ -192,7 +191,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
 
           {/* Client / Partner Name if OTHER */}
           <div>
-            <label className="block text-slate-300 font-medium mb-1">
+            <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
               {sourceType === 'WOLT' ? 'Partner / Megbízó' : 'Ügyfél / Megbízó Neve (Egyéb bevétel)'}
             </label>
             <input
@@ -200,22 +199,22 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
               placeholder={sourceType === 'WOLT' ? 'Wolt Magyarország Kft.' : 'pl. Megbízó Kft., Magánszemély, egyéb cég'}
               value={clientName}
               onChange={e => setClientName(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 text-xs"
+              className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-900 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 text-xs shadow-xs"
             />
           </div>
 
           {/* Period selector tabs (for Wolt) */}
           {sourceType === 'WOLT' ? (
             <div>
-              <label className="block text-slate-300 font-medium mb-1.5">Wolt Elszámolási Ciklus</label>
+              <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5">Wolt Elszámolási Ciklus</label>
               <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => setPeriodType('FIRST_HALF')}
-                  className={`py-2 px-2 text-center rounded-lg border font-medium transition-colors ${
+                  className={`py-2 px-2 text-center rounded-lg border font-semibold transition-colors ${
                     periodType === 'FIRST_HALF'
-                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
-                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                      ? 'bg-cyan-50 dark:bg-cyan-500/20 text-cyan-800 dark:text-cyan-300 border-cyan-300 dark:border-cyan-500/50 shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   1–15. időszak
@@ -223,10 +222,10 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setPeriodType('SECOND_HALF')}
-                  className={`py-2 px-2 text-center rounded-lg border font-medium transition-colors ${
+                  className={`py-2 px-2 text-center rounded-lg border font-semibold transition-colors ${
                     periodType === 'SECOND_HALF'
-                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
-                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                      ? 'bg-cyan-50 dark:bg-cyan-500/20 text-cyan-800 dark:text-cyan-300 border-cyan-300 dark:border-cyan-500/50 shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   16–hó vége
@@ -234,10 +233,10 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setPeriodType('FULL_MONTH')}
-                  className={`py-2 px-2 text-center rounded-lg border font-medium transition-colors ${
+                  className={`py-2 px-2 text-center rounded-lg border font-semibold transition-colors ${
                     periodType === 'FULL_MONTH'
-                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
-                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                      ? 'bg-cyan-50 dark:bg-cyan-500/20 text-cyan-800 dark:text-cyan-300 border-cyan-300 dark:border-cyan-500/50 shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   Teljes hónap
@@ -246,15 +245,15 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
             </div>
           ) : (
             <div>
-              <label className="block text-slate-300 font-medium mb-1.5">Időszak jellege</label>
+              <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5">Időszak jellege</label>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => setPeriodType('CUSTOM')}
-                  className={`py-2 px-2 text-center rounded-lg border font-medium transition-colors ${
+                  className={`py-2 px-2 text-center rounded-lg border font-semibold transition-colors ${
                     periodType === 'CUSTOM'
-                      ? 'bg-purple-500/20 text-purple-300 border-purple-500/50'
-                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                      ? 'bg-purple-50 dark:bg-purple-500/20 text-purple-800 dark:text-purple-300 border-purple-300 dark:border-purple-500/50 shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   Eseti számla / kifizetés
@@ -262,10 +261,10 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setPeriodType('FULL_MONTH')}
-                  className={`py-2 px-2 text-center rounded-lg border font-medium transition-colors ${
+                  className={`py-2 px-2 text-center rounded-lg border font-semibold transition-colors ${
                     periodType === 'FULL_MONTH'
-                      ? 'bg-purple-500/20 text-purple-300 border-purple-500/50'
-                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                      ? 'bg-purple-50 dark:bg-purple-500/20 text-purple-800 dark:text-purple-300 border-purple-300 dark:border-purple-500/50 shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   Havi átalánydíj
@@ -277,24 +276,24 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
           {/* Date and Invoice number */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-300 font-medium mb-1">Kifizetés / Számla Dátuma</label>
+              <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Kifizetés / Számla Dátuma</label>
               <input
                 type="date"
                 required
                 value={date}
                 onChange={e => setDate(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono text-xs"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-cyan-500 font-mono text-xs shadow-xs"
               />
             </div>
 
             <div>
-              <label className="block text-slate-300 font-medium mb-1">Wolt Számlaszám (opcionális)</label>
+              <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Wolt Számlaszám (opcionális)</label>
               <input
                 type="text"
                 placeholder="pl. WOLT-2026-09-01"
                 value={invoiceNumber}
                 onChange={e => setInvoiceNumber(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 font-mono text-xs"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-900 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 font-mono text-xs shadow-xs"
               />
             </div>
           </div>
@@ -302,8 +301,8 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
           {/* Gross revenue & Tips */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-300 font-medium mb-1">
-                Bruttó Bevétel (Ft) <span className="text-cyan-400">*</span>
+              <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                Bruttó Bevétel (Ft) <span className="text-cyan-600 dark:text-cyan-400">*</span>
               </label>
               <input
                 type="number"
@@ -313,13 +312,13 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
                 placeholder="pl. 165000"
                 value={grossIncome}
                 onChange={e => setGrossIncome(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono font-bold text-sm focus:outline-none focus:border-cyan-500"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono font-bold text-sm focus:outline-none focus:border-cyan-500 shadow-xs"
               />
-              <span className="text-[10px] text-slate-500 mt-0.5 block">Wolt önszámla szerinti összeg</span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 block">Wolt önszámla szerinti összeg</span>
             </div>
 
             <div>
-              <label className="block text-slate-300 font-medium mb-1">Borravaló (Ft)</label>
+              <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Borravaló (Ft)</label>
               <input
                 type="number"
                 min="0"
@@ -327,28 +326,28 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
                 placeholder="pl. 14200"
                 value={tip}
                 onChange={e => setTip(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-emerald-400 font-mono font-bold text-sm focus:outline-none focus:border-cyan-500"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-emerald-600 dark:text-emerald-400 font-mono font-bold text-sm focus:outline-none focus:border-cyan-500 shadow-xs"
               />
-              <span className="text-[10px] text-slate-500 mt-0.5 block">Applikációban kapott borravaló</span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 block">Applikációban kapott borravaló</span>
             </div>
           </div>
 
           {/* Deliveries & Hours Worked & Vehicle Costs */}
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-slate-300 font-medium mb-1">Címek száma</label>
+              <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Címek száma</label>
               <input
                 type="number"
                 min="0"
                 placeholder="pl. 160"
                 value={deliveriesCount}
                 onChange={e => setDeliveriesCount(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono text-xs focus:outline-none focus:border-cyan-500"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-900 dark:text-slate-200 font-mono text-xs focus:outline-none focus:border-cyan-500 shadow-xs"
               />
             </div>
 
             <div>
-              <label className="block text-slate-300 font-medium mb-1">Futár óraszám</label>
+              <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Futár óraszám</label>
               <input
                 type="number"
                 min="0"
@@ -356,47 +355,47 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({
                 placeholder="pl. 50"
                 value={hoursWorked}
                 onChange={e => setHoursWorked(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono text-xs focus:outline-none focus:border-cyan-500"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-900 dark:text-slate-200 font-mono text-xs focus:outline-none focus:border-cyan-500 shadow-xs"
               />
             </div>
 
             <div>
-              <label className="block text-slate-300 font-medium mb-1">Üzemanyag/szerviz</label>
+              <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Üzemanyag/szerviz</label>
               <input
                 type="number"
                 min="0"
                 placeholder="pl. 20000"
                 value={fuelAndVehicleCost}
                 onChange={e => setFuelAndVehicleCost(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono text-xs focus:outline-none focus:border-cyan-500"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-900 dark:text-slate-200 font-mono text-xs focus:outline-none focus:border-cyan-500 shadow-xs"
               />
             </div>
           </div>
 
           {/* Notes */}
           <div>
-            <label className="block text-slate-300 font-medium mb-1">Megjegyzés (időjárás, bónusz, stb.)</label>
+            <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Megjegyzés (időjárás, bónusz, stb.)</label>
             <input
               type="text"
               placeholder="pl. Hétvégi hideg bónusz, ebédidős műszakok"
               value={notes}
               onChange={e => setNotes(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 text-xs"
+              className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-900 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 text-xs shadow-xs"
             />
           </div>
 
           {/* Form Actions */}
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+              className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
               Mégse
             </button>
             <button
               type="submit"
-              className="px-4 py-2 text-slate-950 bg-cyan-400 hover:bg-cyan-300 font-semibold rounded-lg transition-colors flex items-center gap-1.5"
+              className="px-4 py-2 text-slate-950 bg-cyan-400 hover:bg-cyan-300 font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
             >
               <Check className="w-4 h-4" />
               <span>{initialEntry ? 'Módosítások mentése' : 'Kifizetés mentése'}</span>
